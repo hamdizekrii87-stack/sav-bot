@@ -102,17 +102,35 @@ async function handleMessage(msg) {
     return;
   }
 
-  // Group: parse ticket
-  if (text.match(/^(اسم|nom)\s*:/im)) {
-    const lines = text.split("\n");
+  // Group: parse ticket - 4 lines format OR labeled format
+  const lines4 = text.trim().split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  
+  // Check if it's a 4-line simple format (no labels)
+  const isSimple4Lines = lines4.length >= 4 && !text.match(/^(اسم|nom|هاتف|tel|عنوان|adresse|عطب|problème)\s*:/im);
+  // Check if it's labeled format
+  const isLabeled = text.match(/^(اسم|nom)\s*:/im);
+  
+  if (isSimple4Lines || isLabeled) {
     let t = { report_date: new Date().toISOString().split("T")[0], status: "new" };
-    for (const line of lines) {
-      const l = line.trim();
-      if (l.match(/^(اسم|nom)\s*:/i)) t.client_name = l.split(":").slice(1).join(":").trim();
-      else if (l.match(/^(هاتف|tel|téléphone)\s*:/i)) t.phone = l.split(":").slice(1).join(":").trim();
-      else if (l.match(/^(عنوان|adresse)\s*:/i)) t.address = l.split(":").slice(1).join(":").trim();
-      else if (l.match(/^(عطب|problème|probleme|panne)\s*:/i)) t.problem_type = l.split(":").slice(1).join(":").trim();
-      else if (l.match(/^(ملاحظات|notes)\s*:/i)) t.notes = l.split(":").slice(1).join(":").trim();
+    
+    if (isSimple4Lines) {
+      // Simple 4-line format: name / phone / address / problem
+      t.client_name = lines4[0];
+      t.phone = lines4[1];
+      t.address = lines4[2];
+      t.problem_type = lines4[3];
+      if (lines4[4]) t.notes = lines4.slice(4).join(" ");
+    } else {
+      // Labeled format
+      const lines = text.split("\n");
+      for (const line of lines) {
+        const l = line.trim();
+        if (l.match(/^(اسم|nom)\s*:/i)) t.client_name = l.split(":").slice(1).join(":").trim();
+        else if (l.match(/^(هاتف|tel|téléphone)\s*:/i)) t.phone = l.split(":").slice(1).join(":").trim();
+        else if (l.match(/^(عنوان|adresse)\s*:/i)) t.address = l.split(":").slice(1).join(":").trim();
+        else if (l.match(/^(عطب|problème|probleme|panne)\s*:/i)) t.problem_type = l.split(":").slice(1).join(":").trim();
+        else if (l.match(/^(ملاحظات|notes)\s*:/i)) t.notes = l.split(":").slice(1).join(":").trim();
+      }
     }
 
     if (t.client_name && t.phone && t.address && t.problem_type) {
@@ -122,7 +140,7 @@ async function handleMessage(msg) {
       await updateTicket(saved?.id, { ticket_num: num });
       await sendMsg(chatId, `✅ <b>تم تسجيل الطلب ${num}</b>\n━━━━━━━━━━━━━━\n🔧 <b>طلب SAV جديد</b>\n🆔 <b>رقم الطلب:</b> ${num}\n👤 <b>الاسم:</b> ${t.client_name}\n📱 <b>الهاتف:</b> ${t.phone}\n📍 <b>العنوان:</b> ${t.address}\n🔩 <b>نوع العطب:</b> ${t.problem_type}\n📅 <b>التاريخ:</b> ${t.report_date}\n🟡 <b>الحالة:</b> جديد`);
     } else {
-      await sendMsg(chatId, `⚠️ معلومات ناقصة!\n\nالصيغة الصحيحة:\n<code>اسم: ...\nهاتف: ...\nعنوان: ...\nعطب: ...</code>`);
+      await sendMsg(chatId, `⚠️ معلومات ناقصة!\n\nأرسل 4 أسطر بالترتيب:\n<code>الاسم\nالهاتف\nالعنوان\nnوع العطب</code>\n\nمثال:\n<code>Hamdi Zekri\n29006239\nSfax\nPlage de tension</code>`);
     }
     return;
   }
@@ -202,19 +220,20 @@ http.createServer((req, res) => {
 }).listen(PORT, () => console.log(`SAV Bot running on port ${PORT}`));
 
 console.log("🤖 SAV Bot + Supabase started!");
-// Watcher - يراقب الطلبات المعالجة ويرسل للقروب
+
+// ===== Watcher: يراقب الطلبات المعالجة من التطبيق ويرسل للقروب =====
 let notifiedIds = new Set();
 
 async function watchDoneTickets() {
   try {
     const tickets = await getTickets("done");
-    if (!Array.isArray(tickets)) return;
+    if (!Array.isArray(tickets)) { setTimeout(watchDoneTickets, 60000); return; }
     for (const t of tickets) {
       if (!notifiedIds.has(t.id) && t.resolution) {
         notifiedIds.add(t.id);
         await sendMsg(GROUP_ID,
-          `✅ <b>تمت معالجة ${t.ticket_num}</b>\n━━━━━━━━━━━━━━\n👤 <b>العميل:</b> ${t.client_name}\n📱 <b>الهاتف:</b> ${t.phone}\n📍 <b>العنوان:</b> ${t.address}\n🔩 <b>العطب:</b> ${t.problem_type}\n✅ <b>ما تم:</b> ${t.resolution}\n📅 ${t.resolution_date}`
-        );
+          `✅ <b>تمت معالجة ${t.ticket_num || "#"+t.id}</b>\n━━━━━━━━━━━━━━\n👤 <b>العميل:</b> ${t.client_name}\n📱 <b>الهاتف:</b> ${t.phone}\n📍 <b>العنوان:</b> ${t.address}\n🔩 <b>العطب:</b> ${t.problem_type}\n✅ <b>ما تم:</b> ${t.resolution}\n📅 ${t.resolution_date || ""}`
+        ).catch(console.error);
       }
     }
   } catch(e) { console.error("Watcher error:", e.message); }
@@ -222,4 +241,5 @@ async function watchDoneTickets() {
 }
 
 watchDoneTickets();
+
 poll();
