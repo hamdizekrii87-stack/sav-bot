@@ -202,4 +202,24 @@ http.createServer((req, res) => {
 }).listen(PORT, () => console.log(`SAV Bot running on port ${PORT}`));
 
 console.log("🤖 SAV Bot + Supabase started!");
+// Watcher - يراقب الطلبات المعالجة ويرسل للقروب
+let notifiedIds = new Set();
+
+async function watchDoneTickets() {
+  try {
+    const tickets = await getTickets("done");
+    if (!Array.isArray(tickets)) return;
+    for (const t of tickets) {
+      if (!notifiedIds.has(t.id) && t.resolution) {
+        notifiedIds.add(t.id);
+        await sendMsg(GROUP_ID,
+          `✅ <b>تمت معالجة ${t.ticket_num}</b>\n━━━━━━━━━━━━━━\n👤 <b>العميل:</b> ${t.client_name}\n📱 <b>الهاتف:</b> ${t.phone}\n📍 <b>العنوان:</b> ${t.address}\n🔩 <b>العطب:</b> ${t.problem_type}\n✅ <b>ما تم:</b> ${t.resolution}\n📅 ${t.resolution_date}`
+        );
+      }
+    }
+  } catch(e) { console.error("Watcher error:", e.message); }
+  setTimeout(watchDoneTickets, 60000);
+}
+
+watchDoneTickets();
 poll();
